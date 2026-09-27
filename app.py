@@ -45,28 +45,39 @@ def inisialisasi_jaringan_riil():
 G, posisi_gps = inisialisasi_jaringan_riil()
 
 # ==============================================================================
-# 3. PANEL KONTROL INPUT & LIVE GEOTAGGING GPS HP (TERPERBAIKI)
+# 3. PANEL KONTROL INPUT & LIVE GEOTAGGING GPS HP (VERSI FRAGMENT ANTI-MACET)
 # ==============================================================================
-st.sidebar.header("📍 Fitur Survei Lapangan & GPS")
-st.sidebar.write("Status Geotagging Rumah Pelanggan:")
+# Fungsionalitas GPS dibungkus dengan fragment agar tidak membebani reload peta utama
+@st.fragment
+def render_sidebar_gps():
+    st.sidebar.header("📍 Fitur Survei Lapangan & GPS")
+    st.sidebar.write("Ambil Lokasi Rumah Pelanggan Secara Live:")
+    
+    # Tombol pemicu manual untuk memotong jeda tunggu background browser
+    refresh_gps = st.sidebar.button("🔄 Panggil & Kunci Sinyal GPS", use_container_width=True)
+    
+    # Ambil data lokasi menggunakan struktur Promise JavaScript + Batas Waktu 6 Detik agar tidak menggantung
+    lokasi_gps = streamlit_js_eval(
+        js_expressions="new Promise((resolve) => { navigator.geolocation.getCurrentPosition((pos) => { resolve([pos.coords.latitude, pos.coords.longitude]) }, (err) => { resolve(null) }, { enableHighAccuracy: true, timeout: 6000 }) })", 
+        want_output=True, 
+        key="get_user_gps_isolated"
+    )
+    
+    # Variabel bawaan (Fallback simulator Pasuruan)
+    lat = -7.6432
+    lon = 112.9055
+    
+    if lokasi_gps and isinstance(lokasi_gps, list) and len(lokasi_gps) == 2:
+        lat = lokasi_gps[0]
+        lon = lokasi_gps[1]
+        st.sidebar.success(f"🟢 GPS Terkunci: {lat:.5f}, {lon:.5f}")
+    else:
+        st.sidebar.warning("📡 Mencari satelit GPS... Jika lama, pastikan GPS HP menyala lalu klik tombol 'Panggil & Kunci Sinyal' di atas.")
+        
+    return lat, lon
 
-# Memanggil API Geolocation Browser melalui JavaScript agar memicu pop-up izin lokasi
-lokasi_gps = streamlit_js_eval(
-    js_expressions="navigator.geolocation.getCurrentPosition(pos => { return [pos.coords.latitude, pos.coords.longitude] })", 
-    want_output=True, 
-    key="get_user_gps"
-)
-
-# Nilai koordinat bawaan jika browser belum memberikan izin lokasi (Simulator Pasuruan)
-lat_rumah = -7.6432
-lon_rumah = 112.9055
-
-if lokasi_gps and isinstance(lokasi_gps, list) and len(lokasi_gps) == 2:
-    lat_rumah = lokasi_gps[0]
-    lon_rumah = lokasi_gps[1]
-    st.sidebar.success(f"🟢 GPS Terkunci: {lat_rumah:.5f}, {lon_rumah:.5f}")
-else:
-    st.sidebar.warning("📡 Mencari sinyal GPS... Pastikan telah menyetujui izin lokasi di browser Anda.")
+# Jalankan modul sidebar GPS yang sudah diisolasi performanya
+lat_rumah, lon_rumah = render_sidebar_gps()
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("🧠 Parameter Algoritma AI")
