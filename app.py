@@ -1,6 +1,7 @@
 import streamlit as st
 import networkx as nx
 import folium
+import math
 from streamlit_folium import st_folium
 from streamlit_js_eval import streamlit_js_eval
 
@@ -18,52 +19,21 @@ st.write("Sistem Cerdas Rekomendasi Jalur Kabel FTTH Berbasis Koordinat GPS Riil
 st.markdown("---")
 
 # ==============================================================================
-# 2. INISIALISASI DATA KORDINAT TIANG ODP RIIL (CONTOH WILAYAH PASURUAN)
+# 2. PANEL KONTROL INPUT & LIVE GEOTAGGING GPS HP (VERSI ISOLASI FRAGMENT)
 # ==============================================================================
-@st.cache_data
-def inisialisasi_jaringan_riil():
-    G = nx.Graph()
-    
-    # Koordinat GPS Asli Tiang ODP milik ISP (Contoh di sekitar Pasuruan)
-    posisi_gps = {
-        'ODP_Pusat_Daria': [-7.6405, 112.9010],
-        'Tiang_A_Bawah': [-7.6415, 112.9025],
-        'Tiang_C_Bawah': [-7.6425, 112.9040],
-        'Tiang_B_Atas': [-7.6395, 112.9020],
-        'Tiang_D_Atas': [-7.6390, 112.9038]
-    }
-    
-    # Hubungkan antar tiang distribusi (Bobot dihitung dari perkiraan jarak geografis)
-    G.add_edge('ODP_Pusat_Daria', 'Tiang_A_Bawah', jarak=45, belokan=1, hazard=False)
-    G.add_edge('Tiang_A_Bawah', 'Tiang_C_Bawah', jarak=55, belokan=1, hazard=False)
-    
-    G.add_edge('ODP_Pusat_Daria', 'Tiang_B_Atas', jarak=35, belokan=2, hazard=False)
-    G.add_edge('Tiang_B_Atas', 'Tiang_D_Atas', jarak=40, belokan=1, hazard=True) # Jalur rawan pohon rimbun
-    
-    return G, posisi_gps
-
-G, posisi_gps = inisialisasi_jaringan_riil()
-
-# ==============================================================================
-# 3. PANEL KONTROL INPUT & LIVE GEOTAGGING GPS HP (VERSI FRAGMENT ANTI-MACET)
-# ==============================================================================
-# Fungsionalitas GPS dibungkus dengan fragment agar tidak membebani reload peta utama
 @st.fragment
 def render_sidebar_gps():
     st.sidebar.header("📍 Fitur Survei Lapangan & GPS")
     st.sidebar.write("Ambil Lokasi Rumah Pelanggan Secara Live:")
     
-    # Tombol pemicu manual untuk memotong jeda tunggu background browser
-    refresh_gps = st.sidebar.button("🔄 Panggil & Kunci Sinyal GPS", use_container_width=True)
+    st.sidebar.button("🔄 Panggil & Kunci Sinyal GPS", use_container_width=True)
     
-    # Ambil data lokasi menggunakan struktur Promise JavaScript + Batas Waktu 6 Detik agar tidak menggantung
     lokasi_gps = streamlit_js_eval(
         js_expressions="new Promise((resolve) => { navigator.geolocation.getCurrentPosition((pos) => { resolve([pos.coords.latitude, pos.coords.longitude]) }, (err) => { resolve(null) }, { enableHighAccuracy: true, timeout: 6000 }) })", 
         want_output=True, 
         key="get_user_gps_isolated"
     )
     
-    # Variabel bawaan (Fallback simulator Pasuruan)
     lat = -7.6432
     lon = 112.9055
     
@@ -72,17 +42,42 @@ def render_sidebar_gps():
         lon = lokasi_gps[1]
         st.sidebar.success(f"🟢 GPS Terkunci: {lat:.5f}, {lon:.5f}")
     else:
-        st.sidebar.warning("📡 Mencari satelit GPS... Jika lama, pastikan GPS HP menyala lalu klik tombol 'Panggil & Kunci Sinyal' di atas.")
+        st.sidebar.warning("📡 Mencari satelit GPS... Klik tombol refresh di atas jika macet.")
         
     return lat, lon
 
-# Jalankan modul sidebar GPS yang sudah diisolasi performanya
 lat_rumah, lon_rumah = render_sidebar_gps()
 
+# ==============================================================================
+# 3. DYNAMIC GENERATOR TIANG ODP (MENGIKUTI POSISI USER)
+# ==============================================================================
+# Fungsi ini membuat tiang ODP buatan di sekitar posisi teknisi agar simulasi rute selalu muncul di layar
+def inisialisasi_jaringan_riil(lat_user, lon_user):
+    G = nx.Graph()
+    
+    # Membuat cluster tiang fiktif di radius dekat dengan posisi HP Anda saat ini
+    posisi_gps = {
+        'ODP_Pusat_Daria': [lat_user + 0.002, lon_user - 0.002],
+        'Tiang_A_Bawah': [lat_user + 0.001, lon_user - 0.001],
+        'Tiang_C_Bawah': [lat_user + 0.0005, lon_user - 0.0005],
+        'Tiang_B_Atas': [lat_user + 0.0015, lon_user - 0.001],
+        'Tiang_D_Atas': [lat_user + 0.0008, lon_user - 0.0003]
+    }
+    
+    # Hubungkan infrastruktur tiang utama
+    G.add_edge('ODP_Pusat_Daria', 'Tiang_A_Bawah', jarak=45, belokan=1, hazard=False)
+    G.add_edge('Tiang_A_Bawah', 'Tiang_C_Bawah', jarak=55, belokan=1, hazard=False)
+    G.add_edge('ODP_Pusat_Daria', 'Tiang_B_Atas', jarak=35, belokan=2, hazard=False)
+    G.add_edge('Tiang_B_Atas', 'Tiang_D_Atas', jarak=40, belokan=1, hazard=True) 
+    
+    return G, posisi_gps
+
+G, posisi_gps = inisialisasi_jaringan_riil(lat_rumah, lon_rumah)
+
+# Parameter menu kontrol di bagian bawah GPS
 st.sidebar.markdown("---")
 st.sidebar.subheader("🧠 Parameter Algoritma AI")
 
-# Pilihan ODP Asal dan Hambatan
 titik_awal = st.sidebar.selectbox("Pilih Titik ODP Asal:", ['ODP_Pusat_Daria'])
 penalti_belokan = st.sidebar.slider("Faktor Penalti Belokan Kabel (dBm):", 0.0, 1.0, 0.5, step=0.1)
 hindari_pohon = st.sidebar.checkbox("Hindari Jalur Pohon Rimbun (Jalur Atas)", value=True)
@@ -93,11 +88,11 @@ hitung_tombol = st.sidebar.button("ANALISIS JALUR TERBAIK 🤖", type="primary",
 # 4. PROSES ALGORITMA AI & PERHITUNGAN LOSS BUDGET
 # ==============================================================================
 if hitung_tombol:
-    # Dinamis tambahkan titik Rumah Pelanggan hasil tagging ke dalam Graf Jaringan
+    # Daftarkan Rumah Pelanggan ke struktur peta AI menggunakan GPS dinamis
     G.add_node('RUMAH_PELANGGAN')
     posisi_gps['RUMAH_PELANGGAN'] = [lat_rumah, lon_rumah]
     
-    # Hubungkan Rumah Pelanggan ke tiang-tiang distribusi terdekat
+    # Menghubungkan Rumah Pelanggan ke Tiang_C dan Tiang_D secara dinamis
     G.add_edge('Tiang_C_Bawah', 'RUMAH_PELANGGAN', jarak=30, belokan=1, hazard=False)
     G.add_edge('Tiang_D_Atas', 'RUMAH_PELANGGAN', jarak=25, belokan=2, hazard=False)
 
@@ -106,63 +101,67 @@ if hitung_tombol:
         bobot_kalkulasi = data['jarak']
         bobot_kalkulasi += data['belokan'] * (penalti_belokan * 20)
         if hindari_pohon and data.get('hazard', False):
-            bobot_kalkulasi += 1000  # Penalti besar agar AI mencari rute lain
+            bobot_kalkulasi += 1000  
         G[u][v]['bobot_ai'] = bobot_kalkulasi
 
-    # AI Mengeksekusi pencarian rute terpendek yang paling aman
-    rute_terbaik = nx.shortest_path(G, source=titik_awal, target='RUMAH_PELANGGAN', weight='bobot_ai')
-    
-    # Hitung Metrik Teknis Fisik Jalur Terpilih
-    total_jarak = sum(G[rute_terbaik[i]][rute_terbaik[i+1]]['jarak'] for i in range(len(rute_terbaik)-1))
-    total_belokan = sum(G[rute_terbaik[i]][rute_terbaik[i+1]]['belokan'] for i in range(len(rute_terbaik)-1))
-    
-    # Rumus Estimasi Redaman Riil Telekomunikasi FTTH
-    loss_kabel = total_jarak * 0.0035 
-    loss_konektor = 0.6               
-    loss_bending = total_belokan * 0.1 
-    total_redaman = -(19.0 + loss_kabel + loss_konektor + loss_bending)
+    try:
+        # AI Mengeksekusi pencarian rute terpendek yang paling aman
+        rute_terbaik = nx.shortest_path(G, source=titik_awal, target='RUMAH_PELANGGAN', weight='bobot_ai')
+        
+        # Hitung Metrik Teknis Fisik Jalur Terpilih
+        total_jarak = sum(G[rute_terbaik[i]][rute_terbaik[i+1]]['jarak'] for i in range(len(rute_terbaik)-1))
+        total_belokan = sum(G[rute_terbaik[i]][rute_terbaik[i+1]]['belokan'] for i in range(len(rute_terbaik)-1))
+        
+        # Rumus Estimasi Redaman Riil Telekomunikasi FTTH
+        loss_kabel = total_jarak * 0.0035 
+        loss_konektor = 0.6               
+        loss_bending = total_belokan * 0.1 
+        total_redaman = -(19.0 + loss_kabel + loss_konektor + loss_bending)
 
-    # Output Kesimpulan AI
-    st.subheader("📋 Hasil Analisis Kecerdasan Buatan (AI)")
-    nama_jalur = "Jalur Bawah (Aman dari Rintangan)" if 'Tiang_A_Bawah' in rute_terbaik else "Jalur Atas (Dekat Pohon)"
-    st.success(f"🤖 **Rekomendasi Rute:** Menggunakan **{nama_jalur}** -> `{' ➡️ '.join(rute_terbaik)}`")
-    
-    # Tampilan Indikator Metrik (Scannable Cards)
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Panjang Kabel Dipotong", f"{total_jarak} Meter")
-    col2.metric("Jumlah Titik Belokan", f"{total_belokan} Sudut")
-    
-    if total_redaman >= -23.0:
-        col3.metric("Estimasi Redaman Akhir", f"{total_redaman:.2f} dBm", delta="🟢 AMAN")
-    elif -26.0 <= total_redaman < -23.0:
-        col3.metric("Estimasi Redaman Akhir", f"{total_redaman:.2f} dBm", delta="🟡 WARNING", delta_color="inverse")
-    else:
-        col3.metric("Estimasi Redaman Akhir", f"{total_redaman:.2f} dBm", delta="🔴 CRITICAL / LOS", delta_color="inverse")
-
-    # ==============================================================================
-    # 5. INTEGRASI PETA SATELIT DIGITAL INTERAKTIF (FOLIUM/MAPS)
-    # ==============================================================================
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("🗺️ Peta Digital Bentangan Kabel Jaringan (Riil)")
-    
-    # Buat peta dasar digital folium diarahkan ke posisi ODP Pusat
-    peta = folium.Map(location=posisi_gps['ODP_Pusat_Daria'], zoom_start=17, control_scale=True)
-    
-    # Tambahkan marker penanda untuk setiap tiang infrastruktur
-    for nama_tiang, koordinat in posisi_gps.items():
-        if nama_tiang == 'ODP_Pusat_Daria':
-            folium.Marker(koordinat, popup="ODP Utama Daria", icon=folium.Icon(color="red", icon="hdd")).add_to(peta)
-        elif nama_tiang == 'RUMAH_PELANGGAN':
-            folium.Marker(koordinat, popup="Hasil Tagging Rumah User", icon=folium.Icon(color="blue", icon="home")).add_to(peta)
+        # Output Kesimpulan AI
+        st.subheader("📋 Hasil Analisis Kecerdasan Buatan (AI)")
+        nama_jalur = "Jalur Bawah (Aman dari Rintangan)" if 'Tiang_A_Bawah' in rute_terbaik else "Jalur Atas (Dekat Pohon)"
+        st.success(f"🤖 **Rekomendasi Rute:** Menggunakan **{nama_jalur}** -> `{' ➡️ '.join(rute_terbaik)}`")
+        
+        # Tampilan Indikator Metrik (Scannable Cards)
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Panjang Kabel Dipotong", f"{total_jarak} Meter")
+        col2.metric("Jumlah Titik Belokan", f"{total_belokan} Sudut")
+        
+        if total_redaman >= -23.0:
+            col3.metric("Estimasi Redaman Akhir", f"{total_redaman:.2f} dBm", delta="🟢 AMAN")
+        elif -26.0 <= total_redaman < -23.0:
+            col3.metric("Estimasi Redaman Akhir", f"{total_redaman:.2f} dBm", delta="🟡 WARNING", delta_color="inverse")
         else:
-            folium.Marker(koordinat, popup=f"Infrastruktur {nama_tiang}", icon=folium.Icon(color="gray", icon="info-sign")).add_to(peta)
+            col3.metric("Estimasi Redaman Akhir", f"{total_redaman:.2f} dBm", delta="🔴 CRITICAL / LOS", delta_color="inverse")
 
-    # Gambar rute kabel hijau tebal di atas peta jalan riil berdasarkan keputusan AI
-    kordinat_rute_kabel = [posisi_gps[node] for node in rute_terbaik]
-    folium.PolyLine(kordinat_rute_kabel, color="#2ecc71", weight=6, opacity=0.9, popup="Rute Kabel Pilihan AI").add_to(peta)
-    
-    # Render peta folium ke halaman web Streamlit
-    st_folium(peta, width="100%", height=450)
+        # ==============================================================================
+        # 5. INTEGRASI PETA SATELIT DIGITAL INTERAKTIF (FOLIUM/MAPS)
+        # ==============================================================================
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("🗺️ Peta Digital Bentangan Kabel Jaringan (Riil)")
+        
+        # Buat peta dasar digital folium diarahkan ke posisi User saat ini
+        peta = folium.Map(location=[lat_rumah, lon_rumah], zoom_start=17, control_scale=True)
+        
+        # Tambahkan marker penanda untuk setiap tiang infrastruktur
+        for nama_tiang, koordinat in posisi_gps.items():
+            if nama_tiang == 'ODP_Pusat_Daria':
+                folium.Marker(koordinat, popup="ODP Utama Daria", icon=folium.Icon(color="red", icon="hdd")).add_to(peta)
+            elif nama_tiang == 'RUMAH_PELANGGAN':
+                folium.Marker(koordinat, popup="Hasil Tagging Rumah User", icon=folium.Icon(color="blue", icon="home")).add_to(peta)
+            else:
+                folium.Marker(koordinat, popup=f"Infrastruktur {nama_tiang}", icon=folium.Icon(color="gray", icon="info-sign")).add_to(peta)
+
+        # Gambar rute kabel hijau tebal di atas peta jalan riil berdasarkan keputusan AI
+        kordinat_rute_kabel = [posisi_gps[node] for node in rute_terbaik]
+        folium.PolyLine(kordinat_rute_kabel, color="#2ecc71", weight=6, opacity=0.9, popup="Rute Kabel Pilihan AI").add_to(peta)
+        
+        # Render peta folium ke halaman web Streamlit
+        st_folium(peta, width="100%", height=450)
+        
+    except Exception as e:
+        st.error(f"Terjadi kesalahan kalkulasi rute rintangan: {e}")
 
 else:
     st.warning("👈 Silakan atur parameter lapangan di panel menu kiri, lalu tekan tombol 'ANALISIS JALUR TERBAIK' untuk menyalakan peta satelit riil.")
