@@ -45,27 +45,28 @@ def inisialisasi_jaringan_riil():
 G, posisi_gps = inisialisasi_jaringan_riil()
 
 # ==============================================================================
-# 3. PANEL KONTROL INPUT & LIVE GEOTAGGING GPS HP
+# 3. PANEL KONTROL INPUT & LIVE GEOTAGGING GPS HP (TERPERBAIKI)
 # ==============================================================================
 st.sidebar.header("📍 Fitur Survei Lapangan & GPS")
+st.sidebar.write("Status Geotagging Rumah Pelanggan:")
 
-# Tombol untuk menangkap lokasi GPS asli dari smartphone teknisi
-st.sidebar.write("Ambil Lokasi Rumah Pelanggan Secara Live:")
-tombol_gps = st.sidebar.button("🎯 Ambil Koordinat GPS HP Saya", use_container_width=True)
+# Memanggil API Geolocation Browser melalui JavaScript agar memicu pop-up izin lokasi
+lokasi_gps = streamlit_js_eval(
+    js_expressions="navigator.geolocation.getCurrentPosition(pos => { return [pos.coords.latitude, pos.coords.longitude] })", 
+    want_output=True, 
+    key="get_user_gps"
+)
 
-# Variabel default koordinat rumah jika tombol GPS tidak diklik (sebagai fallback simulator)
+# Nilai koordinat bawaan jika browser belum memberikan izin lokasi (Simulator Pasuruan)
 lat_rumah = -7.6432
 lon_rumah = 112.9055
 
-if tombol_gps:
-    # Memanggil API GPS Browser bawaan HP teknisi
-    lokasi = streamlit_js_eval(data_of='geolocation', stop_after_once=True, want_to_see=False)
-    if lokasi:
-        lat_rumah = lokasi['coords']['latitude']
-        lon_rumah = lokasi['coords']['longitude']
-        st.sidebar.success(f"GPS Terkunci: {lat_rumah:.5f}, {lon_rumah:.5f}")
-    else:
-        st.sidebar.error("Gagal mendapatkan GPS. Pastikan izin lokasi browser Anda aktif.")
+if lokasi_gps and isinstance(lokasi_gps, list) and len(lokasi_gps) == 2:
+    lat_rumah = lokasi_gps[0]
+    lon_rumah = lokasi_gps[1]
+    st.sidebar.success(f"🟢 GPS Terkunci: {lat_rumah:.5f}, {lon_rumah:.5f}")
+else:
+    st.sidebar.warning("📡 Mencari sinyal GPS... Pastikan telah menyetujui izin lokasi di browser Anda.")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("🧠 Parameter Algoritma AI")
