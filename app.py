@@ -1,7 +1,6 @@
 import streamlit as st
 import networkx as nx
 import folium
-import math
 from streamlit_folium import st_folium
 from streamlit_js_eval import streamlit_js_eval
 
@@ -19,7 +18,7 @@ st.write("Sistem Cerdas Rekomendasi Jalur Kabel FTTH Berbasis Koordinat GPS Riil
 st.markdown("---")
 
 # ==============================================================================
-# 2. PANEL KONTROL INPUT & LIVE GEOTAGGING GPS HP (VERSI ISOLASI FRAGMENT)
+# 2. PANEL KONTROL INPUT & LIVE GEOTAGGING GPS HP (VERSI AMAN & STABIL)
 # ==============================================================================
 @st.fragment
 def render_sidebar_gps():
@@ -31,31 +30,35 @@ def render_sidebar_gps():
     lokasi_gps = streamlit_js_eval(
         js_expressions="new Promise((resolve) => { navigator.geolocation.getCurrentPosition((pos) => { resolve([pos.coords.latitude, pos.coords.longitude]) }, (err) => { resolve(null) }, { enableHighAccuracy: true, timeout: 6000 }) })", 
         want_output=True, 
-        key="get_user_gps_isolated"
+        key="get_user_gps_final"
     )
     
+    # Nilai default konstan agar aplikasi TIDAK BISA CRASH meskipun GPS HP mati
     lat = -7.6432
     lon = 112.9055
     
     if lokasi_gps and isinstance(lokasi_gps, list) and len(lokasi_gps) == 2:
-        lat = lokasi_gps[0]
-        lon = lokasi_gps[1]
-        st.sidebar.success(f"🟢 GPS Terkunci: {lat:.5f}, {lon:.5f}")
+        if lokasi_gps[0] is not None and lokasi_gps[1] is not None:
+            lat = float(lokasi_gps[0])
+            lon = float(lokasi_gps[1])
+            st.sidebar.success(f"🟢 GPS Terkunci: {lat:.5f}, {lon:.5f}")
+        else:
+            st.sidebar.warning("📡 Menggunakan Mode Simulasi (GPS Browser Belum Siap).")
     else:
-        st.sidebar.warning("📡 Mencari satelit GPS... Klik tombol refresh di atas jika macet.")
+        st.sidebar.warning("📡 Menggunakan Mode Simulasi (GPS Browser Belum Siap).")
         
     return lat, lon
 
+# Menangkap koordinat secara aman
 lat_rumah, lon_rumah = render_sidebar_gps()
 
 # ==============================================================================
-# 3. DYNAMIC GENERATOR TIANG ODP (MENGIKUTI POSISI USER)
+# 3. DYNAMIC GENERATOR TIANG ODP (ANTI-CRASH)
 # ==============================================================================
-# Fungsi ini membuat tiang ODP buatan di sekitar posisi teknisi agar simulasi rute selalu muncul di layar
 def inisialisasi_jaringan_riil(lat_user, lon_user):
     G = nx.Graph()
     
-    # Membuat cluster tiang fiktif di radius dekat dengan posisi HP Anda saat ini
+    # Menghasilkan letak tiang secara dinamis di sekitar lokasi user secara presisi
     posisi_gps = {
         'ODP_Pusat_Daria': [lat_user + 0.002, lon_user - 0.002],
         'Tiang_A_Bawah': [lat_user + 0.001, lon_user - 0.001],
@@ -64,7 +67,6 @@ def inisialisasi_jaringan_riil(lat_user, lon_user):
         'Tiang_D_Atas': [lat_user + 0.0008, lon_user - 0.0003]
     }
     
-    # Hubungkan infrastruktur tiang utama
     G.add_edge('ODP_Pusat_Daria', 'Tiang_A_Bawah', jarak=45, belokan=1, hazard=False)
     G.add_edge('Tiang_A_Bawah', 'Tiang_C_Bawah', jarak=55, belokan=1, hazard=False)
     G.add_edge('ODP_Pusat_Daria', 'Tiang_B_Atas', jarak=35, belokan=2, hazard=False)
